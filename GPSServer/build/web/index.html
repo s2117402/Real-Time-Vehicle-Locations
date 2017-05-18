@@ -1,0 +1,188 @@
+<!doctype html>
+<html class="no-js">
+  <head>
+    <meta charset="utf-8">
+    <title>GPS Tracking</title>
+    <meta name="description" content="">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <script src="http://cdn.pubnub.com/pubnub-3.7.1.min.js"></script>
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.1/css/bootstrap.min.css">
+
+    <style>
+      html, body, #map-canvas {
+        height: 700px;
+        margin: 0px;
+        padding: 0px
+      }
+    </style>
+
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&key=AIzaSyB-T91ng4Dnrg-Tb2X4uM4i3odCoK8Tslk"></script>
+
+  </head>
+  <body>
+    <div class="container"><h1>GPS Tracking</h1></div>
+    <div id="map-canvas"></div>
+
+    <br>
+    
+        <div>
+            <input type="text" id="messageinput"/>
+        </div>
+        <div>
+            <button type="button" onclick="init();" >Init</button>
+            <button type="button" onclick="send();" >Go</button>
+            <button type="button" onclick="closeSocket();" >Close</button>
+        </div>
+        <!-- Server responses get written here -->
+        <div id="messages"></div>
+        
+    <!-- Map Configuration and data -->
+    <script type="text/javascript">
+            var webSocket;
+            var messages = document.getElementById("messages");
+            
+    var map;
+    var map_marker;
+    var lat = 0;
+    var lng = 0;
+    var lineCoordinatesArray = [];
+
+    // sets your location as default
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(function(position) { 
+        var locationMarker = null;
+        if (locationMarker){
+          // return if there is a locationMarker bug
+          return;
+        }
+
+        lat = position.coords["latitude"];
+        lng = position.coords["longitude"];
+
+        // calls PubNub
+    pubs();
+
+        // initialize google maps
+        google.maps.event.addDomListener(window, 'load', initialize());
+      },
+      function(error) {
+        console.log("Error: ", error);
+      },
+      {
+        enableHighAccuracy: true
+      }
+      );
+    }    
+
+
+    function initialize() {
+      console.log("Google Maps Initialized")
+      map = new google.maps.Map(document.getElementById('map-canvas'), {
+        zoom: 15,
+        center: {lat: lat, lng : lng, alt: 0}
+      });
+
+      map_marker = new google.maps.Marker({position: {lat: lat, lng: lng}, map: map});
+      map_marker.setMap(map);
+    }
+
+    // moves the marker and center of map
+    function redraw() {
+      map.setCenter({lat: lat, lng : lng, alt: 0})
+      map_marker.setPosition({lat: lat, lng : lng, alt: 0});
+      pushCoordToArray(lat, lng);
+
+      var lineCoordinatesPath = new google.maps.Polyline({
+        path: lineCoordinatesArray,
+        geodesic: true,
+        strokeColor: '#2E10FF',
+        strokeOpacity: 1.0,
+        strokeWeight: 2
+      });
+      
+      lineCoordinatesPath.setMap(map);
+    }
+
+
+    function pushCoordToArray(latIn, lngIn) {
+      lineCoordinatesArray.push(new google.maps.LatLng(latIn, lngIn));
+    }
+    
+
+    function pubs() {
+      pubnub = PUBNUB.init({
+        publish_key: 'pub-c-50e8d507-9097-49a7-a008-160be8657e6f',
+        subscribe_key: 'sub-c-bae8944e-a71c-11e6-85a3-02ee2ddab7fe'
+      })
+
+      pubnub.subscribe({
+        channel: "mymaps",
+        message: function(message, channel) {
+          console.log(message)
+          lat = message['lat'];
+          lng = message['lng'];
+          //custom method
+          redraw();
+        },
+        connect: function() {console.log("PubNub Connected")}
+      })
+    }
+
+            function openSocket(){
+                // Ensures only one connection is open at a time
+                if(webSocket !== undefined && webSocket.readyState !== WebSocket.CLOSED){
+                    writeResponse("WebSocket is already opened.");
+                    return;
+                }
+                // Create a new instance of the websocket
+                webSocket = new WebSocket("ws://localhost:8080/GPSServer/echo");
+                 
+                /**
+                 * Binds functions to the listeners for the websocket.
+                 */
+                webSocket.onopen = function(event){
+                    // For reasons I can't determine, onopen gets called twice
+                    // and the first time event.data is undefined.
+                    // Leave a comment if you know the answer.
+                    if(event.data === undefined) 
+                        return;
+
+                    writeResponse(event.data);
+                };
+
+                webSocket.onmessage = function(event){
+                    var coord=event.data.split(',');
+                    lat=parseFloat(coord[0]);
+                    lng=parseFloat(coord[1]);
+                    writeResponse(lat+" "+lng);
+                    redraw();
+                };
+
+                webSocket.onclose = function(event){
+                    writeResponse("Connection closed");
+                };
+            }
+            
+            /**
+             * Sends the value of the text input to the server
+             */
+            function send(){
+                var text = "p,"+document.getElementById("messageinput").value;
+                webSocket.send(text);
+            }
+            
+            function closeSocket(){
+                webSocket.close();
+            }
+
+            function writeResponse(text){
+                messages.innerHTML += "<br/>" + text;
+            }
+            
+            function init(){
+                openSocket();
+                webSocket.send("p,0");
+            }
+    </script>
+  </body>
+</html>
